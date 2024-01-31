@@ -25,7 +25,24 @@ struct InstanceParam {
 }
 
 #[derive(Debug, Deserialize)]
-struct GetInstanceParam {}
+struct InstanceResponse {
+    status: String,
+    networkInterfaces: Vec<NetworkInterfaces>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NetworkInterfaces {
+    // 必要なフィールドを構造体に追加
+    // 例: networkIP, natIP
+    networkIP: String,
+    accessConfigs: Vec<AccessConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccessConfig {
+    name: String,
+    natIP: String,
+}
 
 async fn get_metadata_token() -> Result<String, reqwest::Error> {
     // GCP metadata endpoint URL
@@ -78,7 +95,7 @@ async fn stop_instance(Json(payload): Json<InstanceParam>) -> Result<(), AppErro
     println!("Status: {}", response.status());
     println!("Body: {:?}", response.text());
 
-    send_discord_webhook(format!("{} was stopped to shutdown.", payload.name)).await?;
+    send_discord_webhook(format!("{} was started to shutdown.", payload.name)).await?;
     Ok(())
 }
 
@@ -106,33 +123,25 @@ async fn start_instance(Json(payload): Json<InstanceParam>) -> Result<(), AppErr
     Ok(())
 }
 
-// async fn get_instance(Json(payload): Json<InstanceParam>) -> Result<String, AppError> {
-//     let url = format!(
-//         "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/instances/{}",
-//         payload.project, payload.zone, payload.name
-//     );
+async fn get_instance(Json(payload): Json<InstanceParam>) -> Result<String, AppError> {
+    let url = format!(
+        "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/instances/{}",
+        payload.project, payload.zone, payload.name
+    );
+    let token = get_metadata_token().await?;
+    let response = reqwest::blocking::Client::new()
+        .get(url)
+        .header("Authorization", format!("Bearer {}", token))
+        .send()?;
 
-//     let token = get_metadata_token().await?;
+    let json_string = response.text()?;
+    println!("{}", json_string);
+    let instance_response: InstanceResponse = serde_json::from_str(&json_string)?;
 
-//     let response = reqwest::Client::new()
-//         .get(&url)
-//         .header("Authorization", format!("Bearer {}", token))
-//         .send()
-//         .await?;
-
-//     send_discord_webhook(format!("{} was started to boot.", payload.name)).await?;
-
-//     if response.status().is_success() {
-//         let instance_info: Instance = response.json().await?;
-//         Ok(Json(instance_info))
-//     } else {
-//         // レスポンスが成功でない場合、エラーメッセージを含んだAppErrorを返す
-//         Err(AppError(anyhow::Error::msg(format!(
-//             "Failed to retrieve instance information for {}",
-//             payload.name
-//         ))))
-//     }
-// }
+    send_discord_webhook(String::from("Instance information obtained.")).await?;
+    let ip = &instance_response.networkInterfaces[0].accessConfigs[0].natIP;
+    Ok(ip.to_string())
+}
 
 async fn root() -> &'static str {
     "Welcome to droprealms!"
@@ -143,7 +152,8 @@ async fn main() {
     let app = Router::new()
         .route("/", get(root))
         .route("/instance/start", post(start_instance))
-        .route("/instance/stop", post(stop_instance));
+        .route("/instance/stop", post(stop_instance))
+        .route("/instance/ip", post(get_instance));
 
     println!("droprealms api is ready!");
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
