@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
 };
 use error::AppError;
-use serde::{Deserialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 
@@ -48,7 +48,8 @@ async fn get_metadata_token() -> Result<String, reqwest::Error> {
     let url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
 
     let client = reqwest::Client::new();
-    let response = client.get(url)
+    let response = client
+        .get(url)
         .header("Metadata-Flavor", "Google")
         .send()
         .await?; // 非同期関数内でawaitを使用する
@@ -89,7 +90,8 @@ async fn stop_instance(Json(payload): Json<InstanceParam>) -> Result<(), AppErro
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", token))
         .body("{{}}")
-        .send().await?;
+        .send()
+        .await?;
 
     println!("Status: {}", response.status());
     println!("Body: {:?}", response.text().await?);
@@ -112,12 +114,13 @@ async fn start_instance(Json(payload): Json<InstanceParam>) -> Result<(), AppErr
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", token))
         .body("{{}}")
-        .send().await?;
+        .send()
+        .await?;
 
     println!("Status: {}", response.status());
     println!("Body: {:?}", response.text().await?);
 
-    send_discord_webhook(format!("{} was started to boot.", payload.name)).await?;
+    let _res = send_discord_webhook(format!("{} was started to boot.", payload.name)).await?;
 
     Ok(())
 }
@@ -128,16 +131,17 @@ async fn get_instance(Json(payload): Json<InstanceParam>) -> Result<String, AppE
         payload.project, payload.zone, payload.name
     );
     let token = get_metadata_token().await?;
-    let response = reqwest::blocking::Client::new()
+    let response = reqwest::Client::new()
         .get(&url)
         .header("Authorization", format!("Bearer {}", token))
-        .send()?;
+        .send()
+        .await?;
 
-    let json_string = response.text()?;
+    let json_string = response.text().await?;
     println!("{}", json_string);
     let instance_response: InstanceResponse = serde_json::from_str(&json_string)?;
 
-    send_discord_webhook(String::from("Instance information obtained.")).await?;
+    let _res = send_discord_webhook(String::from("Instance information obtained.")).await?;
     let ip = &instance_response.networkInterfaces[0].accessConfigs[0].natIP;
     Ok(ip.to_string())
 }
