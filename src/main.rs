@@ -5,8 +5,7 @@ use axum::{
     Json, Router,
 };
 use error::AppError;
-use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 use std::collections::HashMap;
 use std::env;
 
@@ -48,14 +47,14 @@ async fn get_metadata_token() -> Result<String, reqwest::Error> {
     // GCP metadata endpoint URL
     let url = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
 
-    // HTTPリクエストを作成
-    let response = reqwest::blocking::Client::new()
-        .get(url)
+    let client = reqwest::Client::new();
+    let response = client.get(url)
         .header("Metadata-Flavor", "Google")
-        .send()?;
+        .send()
+        .await?; // 非同期関数内でawaitを使用する
 
     // トークンを取得してOk(Result)で返す
-    let json_string = response.text()?;
+    let json_string = response.text().await?;
     let token_response: TokenResponse = serde_json::from_str(&json_string).unwrap();
     Ok(token_response.access_token)
 }
@@ -77,7 +76,7 @@ async fn send_discord_webhook(msg: String) -> Result<(), reqwest::Error> {
 }
 
 async fn stop_instance(Json(payload): Json<InstanceParam>) -> Result<(), AppError> {
-    let client = Client::new();
+    let client = reqwest::Client::new();
     let url = format!(
         "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/instances/{}/stop",
         payload.project, payload.zone, payload.name
@@ -88,19 +87,19 @@ async fn stop_instance(Json(payload): Json<InstanceParam>) -> Result<(), AppErro
     let response = client
         .post(&url)
         .header("Content-Type", "application/json")
-        .header("Content-length", 0)
         .header("Authorization", format!("Bearer {}", token))
-        .send()?;
+        .body("{{}}")
+        .send().await?;
 
     println!("Status: {}", response.status());
-    println!("Body: {:?}", response.text());
+    println!("Body: {:?}", response.text().await?);
 
     send_discord_webhook(format!("{} was started to shutdown.", payload.name)).await?;
     Ok(())
 }
 
 async fn start_instance(Json(payload): Json<InstanceParam>) -> Result<(), AppError> {
-    let client = Client::new();
+    let client = reqwest::Client::new();
     let url = format!(
         "https://compute.googleapis.com/compute/v1/projects/{}/zones/{}/instances/{}/start",
         payload.project, payload.zone, payload.name
@@ -111,12 +110,12 @@ async fn start_instance(Json(payload): Json<InstanceParam>) -> Result<(), AppErr
     let response = client
         .post(&url)
         .header("Content-Type", "application/json")
-        .header("Content-length", 0)
         .header("Authorization", format!("Bearer {}", token))
-        .send()?;
+        .body("{{}}")
+        .send().await?;
 
     println!("Status: {}", response.status());
-    println!("Body: {:?}", response.text());
+    println!("Body: {:?}", response.text().await?);
 
     send_discord_webhook(format!("{} was started to boot.", payload.name)).await?;
 
@@ -130,7 +129,7 @@ async fn get_instance(Json(payload): Json<InstanceParam>) -> Result<String, AppE
     );
     let token = get_metadata_token().await?;
     let response = reqwest::blocking::Client::new()
-        .get(url)
+        .get(&url)
         .header("Authorization", format!("Bearer {}", token))
         .send()?;
 
